@@ -1,3 +1,9 @@
+# OpenClaw / Node
+node_modules/
+openclaw/workspace/daily/*
+openclaw/.openclaw-cache/
+*.log
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
