@@ -71,6 +71,7 @@ Simulated IoT Sensors
         ▼
 Coordinator Agent ◄──► User (Chat / Telegram)
 ```
+
 ## Prerequisites
 
 - Python 3.10+
@@ -136,10 +137,12 @@ details. - "show anomalies today" → List flagged issues.
 
 Example response:
 
+```bash
     System Status — 2026-03-06
     • Active devices: 2 (dev-001-labA, dev-002-labB)
     • Commits today: 12 (last tx: 0xabc...)
     • Anomalies: 1 (temp jump on dev-001)
+```
 
 ### Example Workflow
 
