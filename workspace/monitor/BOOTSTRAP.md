@@ -17,3 +17,8 @@ text
 
 4. Write startup line to daily log:
 MONITOR START 2025-03-06Txx:xx:xxZ
+
+Reference shared knowledge:
+• sensor-metadata.md
+• validation-baselines.md
+• fabric-config-reference.md

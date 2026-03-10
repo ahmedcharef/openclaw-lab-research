@@ -14,3 +14,8 @@ Awaiting structured handoffs
 text4. Log startup:
 ANALYST START 2026-03-06Txx:xx:xxZ
 Torch anomaly detection: [enabled/disabled]
+
+Reference shared knowledge:
+• sensor-metadata.md
+• validation-baselines.md
+• fabric-config-reference.md

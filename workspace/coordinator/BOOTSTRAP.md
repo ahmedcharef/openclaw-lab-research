@@ -15,3 +15,8 @@ Say "status" for overview or ask about any batch/device.
 3. Log startup:
 COORDINATOR START 2026-03-06Txx:xx:xxZ
 Human channel: Telegram @labclaw_bot (or configured)
+
+Reference shared knowledge:
+• sensor-metadata.md
+• validation-baselines.md
+• fabric-config-reference.md

@@ -15,3 +15,8 @@ Ready for approved batches
 text3. Log startup:
 RECORDER START 2026-03-06Txx:xx:xxZ
 Batch policy: max 60 s / 50 readings
+
+Reference shared knowledge:
+• sensor-metadata.md
+• validation-baselines.md
+• fabric-config-reference.md
