@@ -25,8 +25,8 @@ MQTT_CLIENT_ID = f"simulator-{random.randint(1000,9999)}"
 BASE_TOPIC = "/lab"
 
 # Log file path — matches your skill's location
-HOME = os.path.expanduser("~")  # gets /home/node or current user's home
-LOG_DIR = os.path.join(HOME, ".openclaw/workspace/skills/mqtt-lab-listener/workspace/daily")
+# HOME = os.path.expanduser("~")  # gets /home/node or current user's home
+# LOG_DIR = os.path.join(HOME, ".openclaw/workspace/skills/mqtt-lab-listener/workspace/daily")
 
 
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -35,7 +35,7 @@ def get_log_filename():
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     return os.path.join(LOG_DIR, f"{today}-mqtt.log")
 
-# Devices (same as before)
+
 DEVICES = [
     {
         "id": "dev-001-labA",
@@ -67,10 +67,45 @@ DEVICES = [
     }
 ]
 
+# Anomaly probabilities (very low = rare)
+ANOMALY_PROB = {
+    "sudden_jump":    0.008,    # ~once every ~2 hours per sensor
+    "gradual_drift":  0.004,    # rare episode starts
+    "freeze":         0.003,    # value stuck for a while
+    "outage":         0.002,    # full device silence 2–12 min
+    "correlation_break": 0.005, # temp up but humidity doesn't follow
+}
+
 SIM_START_TIME = time.time()
 ENABLE_JUMPS = True
 ENABLE_OUTAGES = True
 ENABLE_DRIFT = True
+
+# ==================== STATE ====================
+
+class DeviceState:
+    def __init__(self, device):
+        self.device = device
+        self.last_values = {s: None for s in device["sensors"]}
+        self.last_publish = {s: 0 for s in device["sensors"]}
+        self.drift_active = {s: False for s in device["sensors"]}
+        self.drift_rate = {s: 0.0 for s in device["sensors"]}
+        self.freeze_until = {s: 0 for s in device["sensors"]}
+        self.outage_until = 0
+
+    def is_outage(self):
+        return time.time() < self.outage_until
+
+    def is_frozen(self, sensor):
+        return time.time() < self.freeze_until.get(sensor, 0)
+
+    def start_drift(self, sensor):
+        self.drift_active[sensor] = True
+        self.drift_rate[sensor] = random.uniform(-0.15, 0.15) / 60  # per second, slow
+
+    def stop_drift(self, sensor):
+        self.drift_active[sensor] = False
+        self.drift_rate[sensor] = 0.0
 
 # ==================== HELPERS ====================
 
@@ -80,20 +115,37 @@ def get_iso_timestamp():
 def add_realistic_noise(base, noise_level, drift=0.0):
     noise = np.random.normal(0, noise_level)
     return round(base + noise + drift, 2)
+def add_noise(base, noise_level):
+    return round(base + np.random.normal(0, noise_level), 3)
 
-def maybe_jump(value, sensor_type):
-    if not ENABLE_JUMPS:
-        return value
-    if random.random() < 0.008:
+def apply_anomaly(state, sensor, base, noise):
+    now = time.time()
+
+    # Sudden jump
+    if random.random() < ANOMALY_PROB["sudden_jump"]:
         direction = random.choice([-1, 1])
-        magnitude = random.uniform(2.5, 6.0)
-        if sensor_type == "temperature":
-            magnitude *= 1.2
-        elif sensor_type == "pH":
-            magnitude *= 0.4
-        print(f"   → Sudden jump! {sensor_type} {direction*magnitude:+.1f}")
-        return value + direction * magnitude
-    return value
+        mag = random.uniform(3.0, 10.0) if "temp" in sensor else random.uniform(0.8, 2.5)
+        print(f"   ⚡ SUDDEN JUMP! {sensor} {direction*mag:+.2f}")
+        return base + direction * mag
+
+    # Freeze (stuck value)
+    if random.random() < ANOMALY_PROB["freeze"] and now > state.freeze_until.get(sensor, 0):
+        duration = random.uniform(180, 480)  # 3–8 min
+        state.freeze_until[sensor] = now + duration
+        print(f"   ❄️ FREEZE started on {sensor} for ~{duration/60:.0f} min")
+
+    # Gradual drift episode
+    if random.random() < ANOMALY_PROB["gradual_drift"] and not state.drift_active[sensor]:
+        duration = random.uniform(600, 1800)  # 10–30 min
+        state.start_drift(sensor)
+        print(f"   ↗️ DRIFT episode started on {sensor} for ~{duration/60:.0f} min")
+
+    # Correlation break (only for temp/humidity pair on same device)
+    if sensor == "temperature" and "humidity" in state.device["sensors"]:
+        if random.random() < ANOMALY_PROB["correlation_break"]:
+            print(f"   ⚠️ CORRELATION BREAK triggered (temp changes, humidity stays)")
+
+    return base
 
 def get_drift_factor(elapsed_hours):
     if not ENABLE_DRIFT:
@@ -159,55 +211,64 @@ def main():
     print("Publishing to /lab/# ...  Ctrl+C to stop\n")
 
     last_publish = {d["id"]: {} for d in DEVICES}
+    states = {d["id"]: DeviceState(d) for d in DEVICES}
 
     try:
         while True:
             now = time.time()
-            elapsed_hours = (now - SIM_START_TIME) / 3600.0
 
-            for device in DEVICES:
+            for device_id, state in states.items():
+                device = state.device
+
+                if state.is_outage():
+                    time.sleep(1)
+                    continue
+
+                # Check if outage should start
+                if random.random() < ANOMALY_PROB["outage"]:
+                    duration = random.uniform(120, 720)  # 2–12 min
+                    state.outage_until = now + duration
+                    print(f"   🌑 OUTAGE started for {device_id} (~{duration/60:.0f} min silence)")
+
                 for sensor in device["sensors"]:
-                    key = f"{device['id']}_{sensor}"
+                    last_t = state.last_publish[sensor]
+                    min_i, max_i = device.get("publish_interval", (10, 20))
+                    if now - last_t < random.uniform(min_i, max_i):
+                        continue
 
-                    if key not in last_publish[device["id"]]:
-                        last_publish[device["id"]][sensor] = now - 60
+                    # Get base + apply anomaly logic
+                    if sensor == "temperature":
+                        base = device["temp_base"]
+                        noise = device["temp_noise"]
+                        unit = "°C"
+                    elif sensor == "humidity":
+                        base = device["humidity_base"]
+                        noise = device["humidity_noise"]
+                        unit = "%"
+                    elif sensor == "pH":
+                        base = device["ph_base"]
+                        noise = device["ph_noise"]
+                        unit = "pH"
+                    elif sensor == "conductivity":
+                        base = device["conductivity_base"]
+                        noise = device["conductivity_noise"]
+                        unit = "mS/cm"
+                    else:
+                        continue
 
-                    last_time = last_publish[device["id"]][sensor]
-                    min_int, max_int = device.get("publish_interval", (10, 20))
-                    next_interval = random.uniform(min_int, max_int)
+                    value = add_noise(base, noise)
+                    value = apply_anomaly(state, sensor, value, noise)
 
-                    if now - last_time >= next_interval:
-                        simulate_outage()
+                    # Freeze: keep last value if active
+                    if state.is_frozen(sensor) and state.last_values[sensor] is not None:
+                        value = state.last_values[sensor]
 
-                        if sensor == "temperature":
-                            base = device["temp_base"]
-                            noise = device["temp_noise"]
-                            unit = "°C"
-                        elif sensor == "humidity":
-                            base = device["humidity_base"]
-                            noise = device["humidity_noise"]
-                            unit = "%"
-                        elif sensor == "pH":
-                            base = device["ph_base"]
-                            noise = device["ph_noise"]
-                            unit = "pH"
-                        elif sensor == "conductivity":
-                            base = device["conductivity_base"]
-                            noise = device["conductivity_noise"]
-                            unit = "mS/cm"
-                        else:
-                            continue
+                    publish_message(client, device, sensor, value, unit)
 
-                        drift = get_drift_factor(elapsed_hours)
-                        value = add_realistic_noise(base, noise, drift)
-                        value = maybe_jump(value, sensor)
-
-                        publish_message(client, device, sensor, value, unit)
-
-                        last_publish[device["id"]][sensor] = now
+                    state.last_values[sensor] = value
+                    state.last_publish[sensor] = now
 
             time.sleep(0.5)
-
     except KeyboardInterrupt:
         print("\nStopped by user.")
     finally:
