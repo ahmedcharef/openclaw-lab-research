@@ -25,8 +25,8 @@ MQTT_CLIENT_ID = f"simulator-{random.randint(1000,9999)}"
 BASE_TOPIC = "/lab"
 
 # Log file path — matches your skill's location
-# HOME = os.path.expanduser("~")  # gets /home/node or current user's home
-# LOG_DIR = os.path.join(HOME, ".openclaw/workspace/skills/mqtt-lab-listener/workspace/daily")
+HOME = os.path.expanduser("~")  # gets /home/node or current user's home
+LOG_DIR = os.path.join(HOME, ".openclaw/workspace/skills/mqtt-lab-listener/workspace/daily")
 
 
 os.makedirs(LOG_DIR, exist_ok=True)
