@@ -123,10 +123,25 @@ Coordinator Agent ◄──► User (Chat / Telegram)
 
 ### Running the Simulator
 
-Start simulated sensors to publish data:
+Start simulated sensors to publish data by using - **External sensor data simulator** (`sensor-data-generator.py`):
 
-``` bash
-python src/hardware/simulators/gateway_sim.py
+- Realistic time-series generation (noise, drift, jumps, outages)
+- Publishes to MQTT topics `/lab/#` matching monitor subscription pattern
+- Multiple devices with different sensor types & behaviors
+- Run command example:
+
+```bash
+# 1. Install dependencies (once)
+pip install paho-mqtt numpy
+
+# 2. Run (in one terminal)
+nohup python sensor-data-generator.py > simulator.log 2>&1 &
+
+# 3. In another terminal – run your MQTT broker if not already running
+#    (example with Docker)
+docker run -it -p 1883:1883 eclipse-mosquitto
+
+# 4. Watch OpenClaw agents react in your chat / logs
 ```
 
 ### Interacting with Agents

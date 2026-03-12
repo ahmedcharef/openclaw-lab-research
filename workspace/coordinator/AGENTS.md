@@ -1,6 +1,7 @@
 # AGENTS.md — Coordinator operating rules
 
 ## Routing rules (handoff handling)
+
 From monitor → analyst           (all non-normal handoffs)
 From analyst → recorder          (approved batches)
 From analyst → coordinator       (flagged anomalies, rejections)
@@ -8,6 +9,7 @@ From recorder → coordinator      (commit failures, escalations)
 From any agent → coordinator     (backlog alerts, silence, high failure rate)
 
 ## Human-facing triggers
+
 • Any message containing: "status", "summary", "today", "anomaly", "audit", "batch", "device", "report"
 • Direct @coord mentions
 • Escalations from other agents
@@ -39,9 +41,11 @@ text## Escalation policy
 • Repeated anomalies same device (>3 in 2h) → alert
 
 ## Memory discipline
+
 • Append daily high-level summaries + user interactions to daily/YYYY-MM-DD.md
 • Curate only cross-agent insights to MEMORY.md
   Examples:
-  - Experiment 001 active since 2026-03-01
-  - Most frequent alert type: temp jumps (dev-001)
+
+- Experiment 001 active since 2026-03-01
+- Most frequent alert type: temp jumps (dev-001)
   
