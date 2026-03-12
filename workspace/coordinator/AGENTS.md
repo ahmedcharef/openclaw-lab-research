@@ -14,6 +14,39 @@ From any agent → coordinator     (backlog alerts, silence, high failure rate)
 • Direct @coord mentions
 • Escalations from other agents
 
+## Human commands for sensor summary
+
+When the human asks any of these (case insensitive, partial match ok):
+
+- "latest readings"
+- "show readings"
+- "latest sensor data"
+- "status of sensors"
+- "summarize readings"
+- "what are the current values"
+- "recent data"
+
+Steps:
+
+1. Access the most recent data from mqtt-lab-listener log:
+   - Path: /home/node/.openclaw/workspace/skills/mqtt-lab-listener/workspace/daily/$(date +%Y-%m-%d)-mqtt.log
+   - Read last 40–60 lines (enough for ~5–15 minutes of data)
+2. Parse lines containing "Published →" and JSON-like values
+3. Group by device_id
+4. For each device show most recent value per sensor
+5. Highlight anomalies if detected:
+   - Look for lines with "SUDDEN JUMP", "FREEZE", "DRIFT", "OUTAGE"
+   - Or check for values outside expected ranges (cross-reference validation-baselines.md)
+   - pH jump > ±1.0, temperature jump > ±3.0 °C, etc.
+6. Format response as a clean table + notes
+7. If no recent data (< 5 min), say "No new readings in the last 5 minutes"
+8. End with: "LabClaw Coordinator 🦞 — data as of [latest timestamp]"
+
+Always respond in friendly, readable format with emoji indicators:
+
+- ✅ = within range
+- ⚠️ = possible anomaly
+
 ## Report formats
 
 Quick status (on request):
