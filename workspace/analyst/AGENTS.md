@@ -2,61 +2,93 @@
 
 ## Input expectations
 
-• Only accept handoffs in exact YAML format from monitor/coordinator
-• Reject / ignore anything malformed or lacking required fields
+• Only accept handoffs in exact YAML format from monitor or coordinator
+• Reject / ignore anything malformed, missing required fields, or not starting with "Delegate to analyst:"
+• Log rejected inputs to daily log with reason
 
-## Validation pipeline (apply in order)
+## Validation pipeline (apply in strict order)
 
-1. Structural integrity: required keys present, types correct
-2. Plausibility: value within strict lab ranges (from knowledge/ or MEMORY.md)
-3. Anomaly detection:
-   - Z-score > 2.5 from device baseline (if history exists)
-   - Delta > threshold in short time (e.g., pH ±1.0 in 5 min)
-   - Outlier via simple moving average if >10 points
-4. Cross-sensor correlation (where applicable):
-   - Temp ↑ → Humidity ↓ (expected in drying)
-   - pH stable while conductivity spikes → possible contamination
-5. Optional ML: if Torch skill loaded → autoencoder reconstruction error > 0.15 = anomaly
+1. Structural integrity
+   - Required keys present: type, timestamp, device, sensors, values or values_summary
+   - All values numeric where expected
+   - Timestamps valid ISO 8601 and recent (< 15 min old)
 
-## Decision thresholds
+2. Physical plausibility (immediate reject if violated)
+   - No negative values for: temperature, humidity, pH, conductivity (unless documented exception)
+   - No frozen values: if same value repeated ≥4 times in <10 min → flag freeze
+   - Extreme outliers: temp < 0 or > 60 °C, humidity < 0 or > 100 %, pH < 0 or > 14, conductivity < 0
 
-• Confidence ≥ 0.90 → approved → handoff to recorder
-• 0.60–0.89 → flag anomaly → handoff to coordinator with explanation
-• < 0.60 → reject → feedback to monitor ("invalid/inconsistent")
+3. Range check (from knowledge/areas/validation-rules/validation-baselines.md)
+   - Temperature: 15.0 – 40.0 °C
+   - Humidity: 25 – 80 %
+   - pH: 5.5 – 8.5
+   - Conductivity: 0.05 – 15.0 mS/cm
 
-## Handoff format (strict – use exactly)
+4. Delta / jump detection
+   - Max delta in 60 s: temp ±4.0 °C, humidity ±15 %, pH ±1.0, conductivity ±3.0 mS/cm
+   - Z-score > 2.8 from device baseline (if ≥10 prior points in memory)
 
-For approved:
+5. Cross-sensor correlation (when both sensors present in batch)
+   - Temperature ↑ + Humidity ↓ → expected (coeff between -0.60 and -0.95)
+   - pH stable + conductivity spike → suspicious (possible contamination)
+   - Broken correlation → lower confidence
+
+6. Optional ML (if Torch skill available)
+   - Autoencoder reconstruction error > 0.18 → anomaly
+   - Use device-specific model from MEMORY.md if trained
+
+## Decision thresholds & actions
+
+• Confidence ≥ 0.92 → approved → handoff to recorder
+• 0.65 – 0.91 → flag anomaly → handoff to coordinator with explanation + suggested action
+• < 0.65 or physically impossible → reject → feedback to monitor ("invalid/inconsistent") + escalate to coordinator
+• Any negative value, frozen sensor, or pH < 4 or > 10 → auto-reject + high-priority flag to coordinator
+
+## Handoff formats (strict – copy exactly)
+
+Approved:
 Delegate to recorder:
 type: approved
 confidence: 0.94
-timestamp: 2026-03-06T15:45:33.912Z
+timestamp: 2026-03-13T09:15:22.781Z
 device: dev-001-labA
-batch_id: 20260306-1545
-sensors: temp,humidity,pH
-values_summary: avg_temp=24.8, max_humidity=52.1
+batch_id: 20260313-0910
+sensors: temperature,humidity
+values_summary: avg_temp=23.4, max_humidity=56.1
 reason:
 
 All ranges valid
-No anomalies detected (z-scores < 1.8)
-Expected temp-humidity correlation: -0.82
-evidence: handoff from mon at 2026-03-06T15:45:22Z
+No jumps (max delta 1.2 °C)
+Expected temp-humidity correlation: -0.81
+evidence: handoff from mon at 2026-03-13T09:14:55Z
 
-textFor flagged/rejected:
+Flagged (anomaly):
 Delegate to coordinator:
-type: [anomaly_flag | reject]
-confidence: 0.72
-timestamp: 2026-03-06T15:45:33.912Z
-device: dev-001-labA
+type: anomaly_flag
+confidence: 0.71
+timestamp: 2026-03-13T09:13:00Z
+device: dev-002-labB
 reason:
 
-Temp jump: +4.2 °C in 45 s (z-score 3.1)
-Correlation broken: temp ↑ but humidity stable
-suggested_action: human review / sensor check
+pH frozen at 3.48 for 6 consecutive readings
+Conductivity negative values detected (-0.202 mS/cm)
+severity: high
+suggested_action: immediate human review + possible sensor replacement
 evidence: ...
 
-text## Memory & curation rules
-• Append detailed analysis to daily/YYYY-MM-DD.md
-• Extract only new / recurring patterns to MEMORY.md (e.g., "device drift rate", "typical correlation coeffs")
-• Use summarization tool on daily log if >800 lines
-• Never store raw data long-term — only aggregates & insights
+Rejected (invalid):
+Delegate to monitor:
+type: reject
+reason: physically impossible data (negative conductivity)
+confidence: 0.22
+feedback: invalid/inconsistent – review device calibration
+
+## Memory & curation rules
+
+• Append full analysis (including confidence, reasons, correlations) to daily/YYYY-MM-DD.md
+• Extract only new patterns / baselines to MEMORY.md:
+
+- "dev-002-labB pH freeze detected 2026-03-13"
+- "dev-001-labA humidity-temp correlation updated: -0.84"
+• Run summarization tool if daily log > 700 lines
+• Never store full raw payloads long-term — only aggregates, patterns, and anomaly summaries

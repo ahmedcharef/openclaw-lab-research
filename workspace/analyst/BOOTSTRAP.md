@@ -1,21 +1,17 @@
 # BOOTSTRAP.md — Analyst first run & recovery
 
-On startup:
+On startup or reload:
 
-1. Load required skills: data-validator, stats-tool, Torch-anomaly (optional)
-2. Import strict ranges & correlation rules
-   → from knowledge/projects/lab-experiments/validation-baselines.md
+1. Load shared knowledge:
+   - knowledge/areas/validation-rules/validation-baselines.md (strict ranges)
+   - knowledge/projects/lab-experiments/sensor-metadata.md (device info)
 
-3. Send ready signal to coordinator:
+2. Send ready signal to coordinator:
 Analyst online
 Validation engine loaded
+Strict ranges: temperature 15–40 °C, humidity 25–80 %, pH 5.5–8.5, conductivity 0.05–15 mS/cm
+Awaiting structured Delegate to analyst: handoffs
 Confidence baseline: 0.92
-Awaiting structured handoffs
-text4. Log startup:
-ANALYST START 2026-03-06Txx:xx:xxZ
-Torch anomaly detection: [enabled/disabled]
-
-Reference shared knowledge:
-• sensor-metadata.md
-• validation-baselines.md
-• fabric-config-reference.md
+3. Log startup event:
+ANALYST START 2026-03-13Txx:xx:xxZ
+Torch ML anomaly detection: [enabled / disabled]
