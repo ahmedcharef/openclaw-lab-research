@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
-Simple IoT sensor data simulator for OpenClaw-Lab
+Enhanced IoT sensor data simulator for OpenClaw-Lab
+- More frequent, bigger, and longer-lasting anomalies for easier testing
 - Publishes to MQTT
-- Also logs every message to the exact file your MQTT listener skill uses
-
-Dependencies:
-    pip install paho-mqtt numpy
+- Logs every message to the exact file your MQTT listener skill uses
 """
 
 import json
@@ -25,16 +23,14 @@ MQTT_CLIENT_ID = f"simulator-{random.randint(1000,9999)}"
 BASE_TOPIC = "/lab"
 
 # Log file path — matches your skill's location
-# HOME = os.path.expanduser("~")  # gets /home/node or current user's home
-# LOG_DIR = os.path.join(HOME, ".openclaw/workspace/skills/mqtt-lab-listener/workspace/daily")
-LOG_DIR = "/home/ahmed/.openclaw/workspace/skills/mqtt-lab-listener/workspace/daily"
+HOME = os.path.expanduser("~")  # gets /home/node or current user's home
+LOG_DIR = os.path.join(HOME, ".openclaw/workspace/skills/mqtt-lab-listener/workspace/daily")
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
 def get_log_filename():
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     return os.path.join(LOG_DIR, f"{today}-mqtt.log")
-
 
 DEVICES = [
     {
@@ -67,19 +63,38 @@ DEVICES = [
     }
 ]
 
-# Anomaly probabilities (very low = rare)
+# ────────────────────────────────────────────────
+#  INCREASED ANOMALY FREQUENCY & MAGNITUDE
+# ────────────────────────────────────────────────
 ANOMALY_PROB = {
-    "sudden_jump":    0.008,    # ~once every ~2 hours per sensor
-    "gradual_drift":  0.004,    # rare episode starts
-    "freeze":         0.003,    # value stuck for a while
-    "outage":         0.002,    # full device silence 2–12 min
-    "correlation_break": 0.005, # temp up but humidity doesn't follow
+    "sudden_jump":        0.08,     # ~every 1–2 minutes per sensor
+    "gradual_drift":      0.04,     # new drift episode every ~5–15 min
+    "freeze":             0.03,     # freeze starts every ~5–10 min
+    "outage":             0.015,    # outage every ~10–30 min
+    "correlation_break":  0.06,     # correlation break every ~2–5 min
+}
+
+# Bigger jumps
+JUMP_MAGNITUDE = {
+    "temperature":   (6.0, 18.0),   # +6 to +18 °C (very noticeable)
+    "humidity":      (15, 40),      # +15 to +40 %
+    "pH":            (1.5, 4.0),    # +1.5 to +4 pH units
+    "conductivity":  (1.5, 8.0),    # ×2–6 times base
+}
+
+# Longer freeze & outage
+FREEZE_DURATION_SEC = (300, 1200)     # 5–20 minutes
+OUTAGE_DURATION_SEC = (300, 900)      # 5–15 minutes
+
+# Stronger drift
+DRIFT_MAX_RATE_PER_SEC = {
+    "temperature":   0.008,   # up to ±0.5 °C/min
+    "humidity":      0.08,    # up to ±5 %/min
+    "pH":            0.015,   # up to ±0.9 pH/min
+    "conductivity":  0.12,    # fast changes
 }
 
 SIM_START_TIME = time.time()
-ENABLE_JUMPS = True
-ENABLE_OUTAGES = True
-ENABLE_DRIFT = True
 
 # ==================== STATE ====================
 
@@ -101,7 +116,8 @@ class DeviceState:
 
     def start_drift(self, sensor):
         self.drift_active[sensor] = True
-        self.drift_rate[sensor] = random.uniform(-0.15, 0.15) / 60  # per second, slow
+        max_rate = DRIFT_MAX_RATE_PER_SEC.get(sensor, 0.01)
+        self.drift_rate[sensor] = random.uniform(-max_rate, max_rate)
 
     def stop_drift(self, sensor):
         self.drift_active[sensor] = False
@@ -112,66 +128,38 @@ class DeviceState:
 def get_iso_timestamp():
     return datetime.now(timezone.utc).isoformat(timespec='milliseconds') + "Z"
 
-def add_realistic_noise(base, noise_level, drift=0.0):
-    noise = np.random.normal(0, noise_level)
-    return round(base + noise + drift, 2)
 def add_noise(base, noise_level):
     return round(base + np.random.normal(0, noise_level), 3)
 
 def apply_anomaly(state, sensor, base, noise):
     now = time.time()
 
-    # Sudden jump
+    # Sudden jump – bigger and more frequent
     if random.random() < ANOMALY_PROB["sudden_jump"]:
         direction = random.choice([-1, 1])
-        mag = random.uniform(3.0, 10.0) if "temp" in sensor else random.uniform(0.8, 2.5)
-        print(f"   ⚡ SUDDEN JUMP! {sensor} {direction*mag:+.2f}")
+        min_mag, max_mag = JUMP_MAGNITUDE.get(sensor, (3.0, 10.0))
+        mag = random.uniform(min_mag, max_mag)
+        print(f"   🔥 BIG JUMP! {sensor} {direction*mag:+.2f} (new value ~{base + direction*mag:.2f})")
         return base + direction * mag
 
-    # Freeze (stuck value)
+    # Freeze – longer duration
     if random.random() < ANOMALY_PROB["freeze"] and now > state.freeze_until.get(sensor, 0):
-        duration = random.uniform(180, 480)  # 3–8 min
+        duration = random.uniform(*FREEZE_DURATION_SEC)
         state.freeze_until[sensor] = now + duration
-        print(f"   ❄️ FREEZE started on {sensor} for ~{duration/60:.0f} min")
+        print(f"   🧊 FREEZE started on {sensor} for {duration//60:.0f}–{duration//60+1} minutes")
 
-    # Gradual drift episode
+    # Gradual drift – stronger and more frequent
     if random.random() < ANOMALY_PROB["gradual_drift"] and not state.drift_active[sensor]:
-        duration = random.uniform(600, 1800)  # 10–30 min
+        duration = random.uniform(300, 1200)  # 5–20 min
         state.start_drift(sensor)
-        print(f"   ↗️ DRIFT episode started on {sensor} for ~{duration/60:.0f} min")
+        print(f"   ↗️ STRONG DRIFT started on {sensor} for {duration//60:.0f}–{duration//60+1} min")
 
-    # Correlation break (only for temp/humidity pair on same device)
+    # Correlation break – more frequent
     if sensor == "temperature" and "humidity" in state.device["sensors"]:
         if random.random() < ANOMALY_PROB["correlation_break"]:
-            print(f"   ⚠️ CORRELATION BREAK triggered (temp changes, humidity stays)")
+            print(f"   ⚠️ CORRELATION BREAK – temp moving but humidity frozen")
 
     return base
-
-def get_drift_factor(elapsed_hours):
-    if not ENABLE_DRIFT:
-        return 0.0
-    drift_rate = random.uniform(-0.10, 0.10) / 3600
-    return drift_rate * elapsed_hours * 3600
-
-def simulate_outage():
-    if ENABLE_OUTAGES and random.random() < 0.004:
-        duration_sec = random.randint(120, 600)
-        print(f"   !!! Outage simulation: sleeping {duration_sec}s ...")
-        time.sleep(duration_sec)
-
-def log_to_file(topic, payload_dict):
-    log_entry = {
-        "timestamp": get_iso_timestamp(),
-        "topic": topic,
-        "message": json.dumps(payload_dict),           # raw JSON string
-        "struct_redacted": False,
-        "anomaly_scored": False
-    }
-    log_path = get_log_filename()
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(log_entry) + "\n")
-
-# ==================== PUBLISH + LOG ====================
 
 def publish_message(client, device, sensor_type, value, unit):
     topic = f"{BASE_TOPIC}/{device['id']}/{sensor_type}"
@@ -190,14 +178,22 @@ def publish_message(client, device, sensor_type, value, unit):
     try:
         result = client.publish(topic, payload_str, qos=1)
         if result.rc == mqtt.MQTT_ERR_SUCCESS:
-            print(f"Published → {topic:<35}  {value:>6} {unit}")
+            print(f"Published → {topic:<40}  {value:>6} {unit}")
         else:
             print(f"Publish failed (rc={result.rc})")
     except Exception as e:
         print(f"Publish error: {e}")
 
-    # Log to the file your skill expects
-    log_to_file(topic, payload)
+    # Log to the exact file your skill uses
+    log_path = get_log_filename()
+    log_entry = {
+        "timestamp": get_iso_timestamp(),
+        "topic": topic,
+        "message": payload_str,
+        "anomaly_flag": "jump" if "JUMP" in str(value) else None  # simple marker
+    }
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(log_entry) + "\n")
 
 # ==================== MAIN LOOP ====================
 
@@ -206,11 +202,10 @@ def main():
     client.connect(MQTT_BROKER, MQTT_PORT, 60)
     client.loop_start()
 
-    print(f"Simulator started → broker={MQTT_BROKER}:{MQTT_PORT}")
+    print(f"Simulator started (HIGH ANOMALY MODE) → {MQTT_BROKER}:{MQTT_PORT}")
     print(f"Logging also to: {get_log_filename()}")
-    print("Publishing to /lab/# ...  Ctrl+C to stop\n")
+    print("Anomalies are now MUCH more frequent and bigger!\n")
 
-    last_publish = {d["id"]: {} for d in DEVICES}
     states = {d["id"]: DeviceState(d) for d in DEVICES}
 
     try:
@@ -226,9 +221,9 @@ def main():
 
                 # Check if outage should start
                 if random.random() < ANOMALY_PROB["outage"]:
-                    duration = random.uniform(120, 720)  # 2–12 min
+                    duration = random.uniform(*OUTAGE_DURATION_SEC)
                     state.outage_until = now + duration
-                    print(f"   🌑 OUTAGE started for {device_id} (~{duration/60:.0f} min silence)")
+                    print(f"   🌑 BIG OUTAGE started for {device_id} ({duration//60:.0f}–{duration//60+1} min silence)")
 
                 for sensor in device["sensors"]:
                     last_t = state.last_publish[sensor]
@@ -236,7 +231,7 @@ def main():
                     if now - last_t < random.uniform(min_i, max_i):
                         continue
 
-                    # Get base + apply anomaly logic
+                    # Base value + noise
                     if sensor == "temperature":
                         base = device["temp_base"]
                         noise = device["temp_noise"]
@@ -259,9 +254,10 @@ def main():
                     value = add_noise(base, noise)
                     value = apply_anomaly(state, sensor, value, noise)
 
-                    # Freeze: keep last value if active
+                    # Freeze override
                     if state.is_frozen(sensor) and state.last_values[sensor] is not None:
                         value = state.last_values[sensor]
+                        print(f"   (frozen value held: {value} {unit})")
 
                     publish_message(client, device, sensor, value, unit)
 
@@ -269,6 +265,7 @@ def main():
                     state.last_publish[sensor] = now
 
             time.sleep(0.5)
+
     except KeyboardInterrupt:
         print("\nStopped by user.")
     finally:

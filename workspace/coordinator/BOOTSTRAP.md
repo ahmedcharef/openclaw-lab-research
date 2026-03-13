@@ -1,9 +1,5 @@
 # BOOTSTRAP.md — Coordinator first run & recovery
 
-On startup:
-Data source for summaries:
-• mqtt-lab-listener daily log: /home/node/.openclaw/workspace/skills/mqtt-lab-listener/workspace/daily/$(date +%Y-%m-%d)-mqtt.log
-
 1. Verify all other agents have sent "online" messages
    (monitor, analyst, recorder)
 

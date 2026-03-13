@@ -53,26 +53,40 @@ batch_id: 20250306-1430  (only for batch type)
 
 ## Observation sources
 
-Primary source (preferred):
+Primary source:
 
-- Use mqtt-lab-listener skill logs
-- Tail or read: /home/node/.openclaw/workspace/skills/mqtt-lab-listener/workspace/daily/$(date +%Y-%m-%d)-mqtt.log
+- Tail / read new lines from:
+  /home/node/.openclaw/workspace/skills/mqtt-lab-listener/workspace/daily/$(date +%Y-%m-%d)-mqtt.log
 
-Fallback (if skill not responding):
+Instructions:
 
-- Directly use mqtt_subscribe on /lab/# if tool available
-
-How to process:
-
-1. Read new lines every 30–60 seconds (use tail -n 20 or similar)
-2. Parse each line that contains JSON payload
-3. Extract fields: device_id, sensor_type, value, unit, ts
-4. Apply lightweight checks:
-   - required fields present?
-   - value numeric?
-   - within very wide plausible range?
-   - sudden jump from previous same-sensor reading?
-   - rate too high (>20 msg/min per device)?
-5. If normal → log quietly to my daily/YYYY-MM-DD.md
-6. If interesting/suspicious → create Delegate to analyst YAML
-7. If new device → handoff "new-device" type
+1. Every 30–90 seconds, read the last 40–100 lines of the file
+2. Look for lines starting with "Published →" followed by topic and JSON
+3. Parse the JSON payload inside the line
+4. Extract:
+   - device_id
+   - sensor_type
+   - value (convert to float)
+   - unit
+   - ts
+5. Keep track of last value & timestamp per (device_id + sensor_type)
+6. Apply checks:
+   - missing required fields (device_id, sensor_type, value, unit, ts) → type: incomplete
+   - value not numeric or NaN → type: invalid
+   - value outside very wide plausible range (temp -150..+200, humidity 0..200, pH -5..20, cond 0..50) → type: soft-range
+   - sudden jump from last known value on same (device+type):
+     - temperature: > 4 °C in < 120 s
+     - humidity:    > 12 % in < 120 s
+     - pH:          > 1.0 in < 180 s
+     - conductivity > 50% relative change in < 180 s
+     → type: jump
+   - value unchanged (same as previous) for > 180 seconds → type: freeze
+   - no message from known device for > 300 seconds → type: silence
+   - message rate > 30 msg/min per device → type: rate
+   - new device_id never seen before → type: new-device
+   - For dev-001-labA only: if temperature changes > 2 °C but humidity changes < 3 % → type: correlation-break
+7. If any of the above → create structured Delegate to analyst YAML
+8. Otherwise → append to my daily log only (normal reading)
+9. Keep a simple in-memory history (last 20 readings per device+type) to calculate deltas & silence
+10. Log every parsed reading with timestamp and "NORMAL" or "FLAGGED: [type]" to my daily/YYYY-MM-DD.md
+11. Every 5 minutes → handoff a "health summary" batch even if all normal (type: batch)

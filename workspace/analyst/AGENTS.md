@@ -1,10 +1,12 @@
 # AGENTS.md — Analyst operating rules
 
 ## Input expectations
+
 • Only accept handoffs in exact YAML format from monitor/coordinator
 • Reject / ignore anything malformed or lacking required fields
 
 ## Validation pipeline (apply in order)
+
 1. Structural integrity: required keys present, types correct
 2. Plausibility: value within strict lab ranges (from knowledge/ or MEMORY.md)
 3. Anomaly detection:
@@ -17,6 +19,7 @@
 5. Optional ML: if Torch skill loaded → autoencoder reconstruction error > 0.15 = anomaly
 
 ## Decision thresholds
+
 • Confidence ≥ 0.90 → approved → handoff to recorder
 • 0.60–0.89 → flag anomaly → handoff to coordinator with explanation
 • < 0.60 → reject → feedback to monitor ("invalid/inconsistent")
